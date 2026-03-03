@@ -1,35 +1,55 @@
+import { Feather } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Platform, StyleSheet } from 'react-native';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+        tabBarShowLabel: false, // Clean, minimalist look
+        tabBarStyle: styles.tabBar,
+        tabBarActiveTintColor: '#2d5a2e', // Deep Agritech green for the active tab
+        tabBarInactiveTintColor: '#94A3B8', // Soft grey for inactive tabs
+      }}
+    >
+      {/* Notice this is now 'home' instead of 'index' */}
       <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
+        name="home"
+        options={{ tabBarIcon: ({ color }) => <Feather name="home" size={24} color={color} /> }}
       />
       <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
+        name="reports"
+        options={{ tabBarIcon: ({ color }) => <Feather name="file-text" size={24} color={color} /> }}
+      />
+      {/* The Input button is now completely uniform with the rest */}
+      <Tabs.Screen
+        name="input"
+        options={{ tabBarIcon: ({ color }) => <Feather name="plus-circle" size={26} color={color} /> }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{ tabBarIcon: ({ color }) => <Feather name="clock" size={24} color={color} /> }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{ tabBarIcon: ({ color }) => <Feather name="settings" size={24} color={color} /> }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    elevation: 0,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    height: Platform.OS === 'ios' ? 85 : 70,
+  },
+});
