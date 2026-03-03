@@ -2,6 +2,7 @@ import { Database } from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 
 import Crop from './models/Crop';
+import Evaluation from './models/Evaluation';
 import { schema } from './schema';
 
 // Create the SQLite adapter
@@ -18,6 +19,6 @@ export const database = new Database({
   adapter,
   modelClasses: [
     Crop,
-    // We will add Evaluation here later!
+    Evaluation, // Registered the evaluation model
   ],
 });

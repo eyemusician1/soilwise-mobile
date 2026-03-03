@@ -13,6 +13,7 @@ export default function LandingScreen() {
     >
       <StatusBar barStyle="light-content" />
       
+      {/* Darkened overlay to ensure white text remains extremely crisp */}
       <View style={styles.overlay}>
         <View style={styles.content}>
           <Text style={styles.heroTitle}>Soilwise</Text>
@@ -21,9 +22,10 @@ export default function LandingScreen() {
             Interactive crop evaluations.{'\n'}Generated in real-time.
           </Text>
           
+          {/* Glassmorphism Button */}
           <TouchableOpacity 
             style={styles.getStartedButton} 
-            activeOpacity={0.8}
+            activeOpacity={0.7}
             onPress={() => router.replace('/(tabs)/home')} 
           >
             <Text style={styles.getStartedButtonText}>Get Started</Text>
@@ -39,10 +41,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Optional dark overlay for better text visibility
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.10)',
+    // A slightly darker overlay (35% black) gives that professional cinematic contrast
+    backgroundColor: 'rgba(0, 0, 0, 0.34)', 
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -50,37 +52,61 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     paddingHorizontal: 24,
+    width: '100%',
   },
 
   heroTitle: {
-    fontSize: 90,
-    fontWeight: '700',
+    fontSize: 80,
+    fontWeight: '800',
     color: '#ffffff',
     letterSpacing: -2,
     marginBottom: 16,
+    // A softer, wider shadow creates a professional "glow" that separates it from the background
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 16,
   },
 
   heroSubtitle: {
-    fontSize: 20,
-    color: '#ffffff',
+    fontSize: 18,
+    color: '#f8fafc',
     textAlign: 'center',
     lineHeight: 28,
-    marginBottom: 40,
+    marginBottom: 48,
     letterSpacing: -0.2,
+    fontWeight: '500',
+    // Same soft shadow treatment for the subtitle
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 12,
   },
 
+  // --- GLASSMORPHISM BUTTON ---
   getStartedButton: {
-    backgroundColor: 'transparent',
-    paddingVertical: 14,
-    paddingHorizontal: 32,
+    // 15% opaque white gives the "frosted glass" look
+    backgroundColor: 'rgba(255, 255, 255, 0.15)', 
+    paddingVertical: 16,
+    paddingHorizontal: 40,
     borderRadius: 30,
-    borderWidth: 1,
-    borderColor: '#ffffff',
+    // The border acts as the "light reflection" on the edge of the glass
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.4)', 
+    // Subtle shadow to lift the glass off the background
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 4, // For Android
   },
 
   getStartedButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '500',
+    color: '#ffffff', // White text to match the glass theme
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    // Add a tiny shadow to the button text so it doesn't get lost in the glass
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 });
