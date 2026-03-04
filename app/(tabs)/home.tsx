@@ -5,34 +5,38 @@ import withObservables from '@nozbe/with-observables';
 import React from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import Evaluation from '../../src/database/models/Evaluation';
+
 const { width } = Dimensions.get('window');
 
 interface HomeProps {
   cropsCount: number;
+  evaluations: Evaluation[]; 
 }
 
-const HomeScreen = ({ cropsCount }: HomeProps) => {
-  // Generates a clean, dynamic date string (e.g., "Monday, October 23")
-  const today = new Date().toLocaleDateString('en-US', { 
-    weekday: 'long', 
-    month: 'long', 
-    day: 'numeric' 
-  });
+const HomeScreen = ({ cropsCount, evaluations }: HomeProps) => {
+  
+  // --- CALCULATE LIVE ANALYTICS ---
+  const evalCount = evaluations.length;
+  
+  // Count how many evaluations resulted in Highly (S1) or Moderately (S2) Suitable
+  const suitableCount = evaluations.filter(e => e.lsc === 'S1').length;
+  
+  // Calculate Average LSI Score across all evaluations
+  const totalLsi = evaluations.reduce((sum, e) => sum + e.lsi, 0);
+  const avgLsi = evalCount > 0 ? Math.round(totalLsi / evalCount) : 0;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       
-      {/* 1. Google-Style Header with Date Pill */}
+      {/* 1. Header */}
       <View style={styles.header}>
-        <View style={styles.datePill}>
-          <Feather name="calendar" size={14} color="#5a9d5e" />
-          <Text style={styles.dateText}>{today}</Text>
-        </View>
         <Text style={styles.headerTitle}>Overview</Text>
       </View>
 
-      {/* 2. Material 3 Stats Grid */}
+      {/* 2. Live Stats Grid */}
       <View style={styles.statsGrid}>
+        
         <View style={styles.statCard}>
           <View style={styles.iconWrapper}>
             <Feather name="database" size={20} color="#5a9d5e" />
@@ -41,39 +45,42 @@ const HomeScreen = ({ cropsCount }: HomeProps) => {
           <Text style={styles.statLabel}>Crops Loaded</Text>
         </View>
 
+        {/* UPDATED: Changed to Reports Generated */}
         <View style={styles.statCard}>
           <View style={styles.iconWrapper}>
-            <Feather name="layers" size={20} color="#5a9d5e" />
+            <Feather name="file-text" size={20} color="#5a9d5e" />
           </View>
-          <Text style={styles.statValue}>0</Text>
-          <Text style={styles.statLabel}>Soil Samples</Text>
+          <Text style={styles.statValue}>{evalCount}</Text>
+          <Text style={styles.statLabel}>Reports Generated</Text>
+        </View>
+
+        {/* UPDATED: Shifted Suitable Fits here */}
+        <View style={styles.statCard}>
+          <View style={styles.iconWrapper}>
+            <Feather name="check-circle" size={20} color="#5a9d5e" />
+          </View>
+          <Text style={styles.statValue}>{suitableCount}</Text>
+          <Text style={styles.statLabel}>Most Suitable (S1)</Text>
         </View>
 
         <View style={styles.statCard}>
           <View style={styles.iconWrapper}>
             <Feather name="activity" size={20} color="#5a9d5e" />
           </View>
-          <Text style={styles.statValue}>0</Text>
-          <Text style={styles.statLabel}>Evaluations</Text>
+          <Text style={styles.statValue}>{avgLsi}%</Text>
+          <Text style={styles.statLabel}>Avg Suitability (LSI)</Text>
         </View>
 
-        <View style={styles.statCard}>
-          <View style={styles.iconWrapper}>
-            <Feather name="check-circle" size={20} color="#5a9d5e" />
-          </View>
-          <Text style={styles.statValue}>0%</Text>
-          <Text style={styles.statLabel}>Suitability</Text>
-        </View>
       </View>
 
-      {/* 3. System Status Card (Classic Google Info Card) */}
+      {/* 3. System Status Card */}
       <View style={styles.infoCard}>
         <View style={styles.infoCardHeader}>
           <Feather name="info" size={20} color="#0F172A" />
           <Text style={styles.infoCardTitle}>System Ready</Text>
         </View>
         <Text style={styles.infoCardText}>
-          The SoilWise evaluation engine is updated and ready. Tap the + button below to start a new soil analysis.
+          The SoilWise evaluation engine is updated and ready. Tap the input button below to start a new soil analysis.
         </Text>
       </View>
 
@@ -81,8 +88,10 @@ const HomeScreen = ({ cropsCount }: HomeProps) => {
   );
 };
 
+// Tell WatermelonDB to listen to the evaluation_results table and pass the data down
 const enhance = withObservables([], ({ database }: { database: Database }) => ({
   cropsCount: database.collections.get('crops').query().observeCount(),
+  evaluations: database.collections.get<Evaluation>('evaluation_results').query().observe(),
 }));
 
 export default withDatabase(enhance(HomeScreen));
@@ -90,32 +99,15 @@ export default withDatabase(enhance(HomeScreen));
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#F8FAFC' // Clean off-white/grey background
+    backgroundColor: '#F8FAFC' 
   },
   scrollContent: { 
     padding: 24, 
     paddingTop: 60, 
-    paddingBottom: 110 // Space for the floating tab bar
+    paddingBottom: 110 
   },
   header: { 
     marginBottom: 32 
-  },
-  datePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eaf4ea', // Pale green from settings
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20, // Pill shape
-    alignSelf: 'flex-start',
-    marginBottom: 12,
-  },
-  dateText: { 
-    color: '#5a9d5e', // Primary green
-    fontSize: 13, 
-    fontWeight: '700', 
-    marginLeft: 6,
-    letterSpacing: 0.5,
   },
   headerTitle: { 
     fontSize: 40, 
@@ -132,7 +124,7 @@ const styles = StyleSheet.create({
   statCard: {
     width: (width - 48 - 16) / 2,
     backgroundColor: '#ffffff',
-    borderRadius: 24, // Large Google Material 3 radius
+    borderRadius: 24, 
     padding: 20,
     marginBottom: 16,
     borderWidth: 1,
@@ -142,7 +134,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F1F5F9', // Soft grey circular wrapper for the icon
+    backgroundColor: '#F1F5F9', 
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,

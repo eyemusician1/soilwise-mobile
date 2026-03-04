@@ -1,9 +1,10 @@
 import { Feather } from '@expo/vector-icons';
+import * as Print from 'expo-print';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-// Import your WatermelonDB instance and Evaluation model
 import { database } from '../../src/database';
 import Evaluation from '../../src/database/models/Evaluation';
 
@@ -85,6 +86,153 @@ export default function ReportsScreen() {
       recs.push("Consult a local agricultural extension officer for specific interventions regarding your soil limitations.");
     }
     return recs;
+  };
+
+  // --- EXPORT PDF ---
+  const handleExportPDF = async () => {
+    if (!reportData) return;
+
+    const decodedFactorsForPdf = decodeLimitingFactors(reportData.limitingFactors);
+    const recommendationsForPdf = generateDynamicRecommendations(reportData.lsc, reportData.limitingFactors);
+    const classColorForPdf = getClassificationColor(reportData.lsc);
+
+    const dateStr = reportData.createdAt
+      ? reportData.createdAt.toLocaleDateString('en-US', {
+          timeZone: 'Asia/Manila',
+          month: 'long', day: 'numeric', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        })
+      : 'N/A';
+
+    const classLabel: Record<string, string> = {
+      S1: 'Highly Suitable',
+      S2: 'Moderately Suitable',
+      S3: 'Marginally Suitable',
+      N:  'Not Suitable',
+    };
+
+    const interpretationText = reportData.lsc === 'S1'
+      ? `The land is highly suitable for ${reportData.cropId}. Soil conditions and climate parameters align perfectly with the crop's optimal growth requirements.`
+      : `The land has some limitations for ${reportData.cropId}. Please review the limiting factors and apply the recommended agricultural interventions to improve yield.`;
+
+    const recommendationRows = recommendationsForPdf
+      .map((rec, i) => `
+        <tr>
+          <td style="width:32px; padding:10px 8px; vertical-align:top; color:#5a9d5e; font-weight:700; font-size:13px;">${i + 1}.</td>
+          <td style="padding:10px 8px; font-size:13px; color:#475569; line-height:1.6;">${rec}</td>
+        </tr>`)
+      .join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8"/>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff; color: #0F172A; padding: 48px 52px; font-size: 14px; }
+
+          /* Header */
+          .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 24px; margin-bottom: 32px; }
+          .app-label { font-size: 11px; font-weight: 700; color: #94A3B8; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 8px; }
+          .report-title { font-size: 28px; font-weight: 800; color: #0F172A; letter-spacing: -0.5px; margin-bottom: 4px; }
+          .report-subtitle { font-size: 15px; color: #64748B; font-style: italic; margin-bottom: 12px; }
+          .meta-row { display: flex; gap: 24px; margin-top: 12px; }
+          .meta-item { font-size: 12px; color: #94A3B8; }
+          .meta-item span { color: #475569; font-weight: 600; }
+
+          /* Summary Cards */
+          .summary-row { display: flex; gap: 16px; margin-bottom: 24px; }
+          .summary-card { flex: 1; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; background: #f8fafc; }
+          .summary-card.full { flex: unset; width: 100%; }
+          .card-label { font-size: 10px; font-weight: 700; color: #94A3B8; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+          .card-value { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
+          .card-subtext { font-size: 12px; color: #64748B; margin-top: 4px; font-weight: 500; }
+          .card-value-text { font-size: 14px; font-weight: 600; color: #0F172A; margin-top: 4px; }
+
+          /* Section */
+          .section { margin-bottom: 24px; }
+          .section-title { font-size: 15px; font-weight: 700; color: #0F172A; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9; }
+          .body-text { font-size: 13px; color: #475569; line-height: 1.7; }
+
+          /* Recommendations Table */
+          table { width: 100%; border-collapse: collapse; }
+          tr:not(:last-child) td { border-bottom: 1px solid #f1f5f9; }
+
+          /* Footer */
+          .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; }
+          .footer-text { font-size: 11px; color: #94A3B8; }
+        </style>
+      </head>
+      <body>
+
+        <div class="header">
+          <div class="app-label">SoilWise — Crop Suitability Evaluation</div>
+          <div class="report-title">Evaluation Report</div>
+          <div class="report-subtitle">${reportData.cropId}${reportData.season ? ` &mdash; ${reportData.season.split('(')[0].trim()}` : ''}</div>
+          <div class="meta-row">
+            <div class="meta-item">Date: <span>${dateStr}</span></div>
+            <div class="meta-item">Location: <span>${(reportData as any).location || 'N/A'}</span></div>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="section">
+          <div class="section-title">Summary</div>
+          <div class="summary-row">
+            <div class="summary-card">
+              <div class="card-label">LSI Score</div>
+              <div class="card-value" style="color:${classColorForPdf};">${reportData.lsi.toFixed(2)}</div>
+              <div class="card-subtext">Out of 100</div>
+            </div>
+            <div class="summary-card">
+              <div class="card-label">Class</div>
+              <div class="card-value" style="color:${classColorForPdf};">${reportData.lsc}</div>
+              <div class="card-subtext">${classLabel[reportData.lsc] || reportData.lsc}</div>
+            </div>
+          </div>
+          <div class="summary-card full" style="margin-top:0;">
+            <div class="card-label">Limiting Factors</div>
+            <div class="card-value-text">${decodedFactorsForPdf}</div>
+          </div>
+        </div>
+
+        <!-- Interpretation -->
+        <div class="section">
+          <div class="section-title">Interpretation</div>
+          <p class="body-text">${interpretationText}</p>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="section">
+          <div class="section-title">Recommendations</div>
+          <table>
+            ${recommendationRows}
+          </table>
+        </div>
+
+        <div class="footer">
+          <div class="footer-text">Generated by SoilWise &mdash; Mindanao State University</div>
+          <div class="footer-text">${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+        </div>
+
+      </body>
+      </html>
+    `;
+
+    try {
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Export Evaluation Report',
+          UTI: 'com.adobe.pdf',
+        });
+      }
+    } catch (error) {
+      console.error('PDF export failed:', error);
+    }
   };
 
   // --- RENDER STATES ---
@@ -196,7 +344,7 @@ export default function ReportsScreen() {
           <Text style={styles.secondaryButtonText}>Clear Report</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.primaryButton} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.primaryButton} activeOpacity={0.8} onPress={handleExportPDF}>
           <Feather name="share" size={18} color="#ffffff" style={{ marginRight: 8 }} />
           <Text style={styles.primaryButtonText}>Export PDF</Text>
         </TouchableOpacity>

@@ -14,7 +14,7 @@ env: export EXPO_PUBLIC_API_URL
 √ Updated package.json | no changes
 √ Finished prebuild
 
-C:\soilwise-mobile>set ANDROID_HOME=C:\AndroidSDK
+C:\soilwise-mobile>set ANDROID_HOME=C:\AndroidSDK !!!!!!!!!!!!!!!!
 
 C:\soilwise-mobile>npx expo run:android
 env: load .env

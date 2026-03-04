@@ -1,5 +1,8 @@
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -161,6 +164,7 @@ export default function InputScreen() {
   };
 
   const [formData, setFormData] = useState(initialFormState);
+  const [showClearModal, setShowClearModal] = useState(false);
 
   const isSeasonalCrop = SEASONAL_CROPS.includes(formData.crop);
   const showClayActivity = formData.cec === '16' || formData.cec === '16.0';
@@ -169,12 +173,7 @@ export default function InputScreen() {
     setFormData(prev => ({ ...prev, [key]: value }));
   };
 
-  const clearForm = () => {
-    Alert.alert("Clear Form", "Are you sure you want to clear all inputs?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Clear", style: "destructive", onPress: () => setFormData(initialFormState) }
-    ]);
-  };
+  const clearForm = () => setShowClearModal(true);
 
   // --- THE REAL DATABASE EVALUATION FUNCTION ---
   const handleRunAnalysis = async () => {
@@ -243,7 +242,231 @@ export default function InputScreen() {
     }
   };
 
+  // --- DOWNLOAD CSV TEMPLATE (mirrors Python desktop version: PARAMETER | VALUE | NOTES) ---
+  const handleDownloadTemplate = async () => {
+    try {
+      const rows: (string | null)[][] = [];
+
+      const addTitle = (text: string) => {
+        rows.push([text, null, null]);
+        rows.push([null, null, null]);
+      };
+
+      const addInstruction = (text: string) => {
+        rows.push([text, null, null]);
+        rows.push([null, null, null]);
+      };
+
+      const addSection = (title: string, fields: [string, string][]) => {
+        rows.push([title, null, null]);
+        rows.push(['PARAMETER', 'VALUE', 'NOTES / OPTIONS']);
+        fields.forEach(([param, note]) => rows.push([param, '', note]));
+        rows.push([null, null, null]);
+      };
+
+      addTitle('SoilWise - Soil Data Input Template');
+      addInstruction('Instructions: Fill in the VALUE column with your data. Do not modify the PARAMETER column.');
+
+      addSection('CROP SELECTION', [
+        ['Crop Name', `Options: ${CROPS.join(', ')}`],
+        ['Season (if applicable)', 'For seasonal crops: January - April (Dry Season), May - August (Wet Season), September - December (Cool Season)'],
+      ]);
+
+      addSection('LOCATION', [
+        ['Site Name', `Options: ${BARANGAYS.join(', ')}`],
+      ]);
+
+      addSection('CLIMATE CHARACTERISTICS', [
+        ['Average Temperature (°C)', 'Range: 0-50°C'],
+        ['Annual Rainfall (mm)', 'Range: 0-5000 mm'],
+        ['Humidity (%)', 'Range: 0-100%'],
+      ]);
+
+      addSection('TOPOGRAPHY', [
+        ['Slope (%)', 'Range: 0-100%'],
+      ]);
+
+      addSection('WETNESS', [
+        ['Flooding', `Options: ${FLOODING_CLASSES.join(', ')}`],
+        ['Drainage', `Options: ${DRAINAGE_CLASSES.join(', ')}`],
+      ]);
+
+      addSection('PHYSICAL SOIL CHARACTERISTICS', [
+        ['Texture', `Options: ${TEXTURES.join(', ')}`],
+        ['Coarse Fragments (vol%)', 'Range: 0-100%'],
+        ['Soil Depth (cm)', 'Range: 0-300 cm'],
+        ['CaCO3 (%)', 'Range: 0-100%'],
+        ['Gypsum (%)', 'Range: 0-100%'],
+      ]);
+
+      addSection('SOIL FERTILITY CHARACTERISTICS', [
+        ['Apparent CEC (cmol/kg clay)', 'Range: 0-200'],
+        ['Clay Activity Type (if CEC=16)', `Options: ${CLAY_ACTIVITIES.join(', ')}`],
+        ['Sum of Basic Cations (cmol/kg)', 'Range: 0-100'],
+        ['Base Saturation (%)', 'Range: 0-100%'],
+        ['pH (H2O)', 'Range: 0-14'],
+        ['Organic Carbon (%)', 'Range: 0-10%'],
+      ]);
+
+      addSection('SALINITY & ALKALINITY', [
+        ['ECe (dS/m)', 'Range: 0-20'],
+        ['ESP (%)', 'Range: 0-100%'],
+      ]);
+
+      // Serialize to CSV with proper quoting
+      const escapeCell = (val: string | null): string => {
+        if (val === null || val === undefined) return '';
+        const s = String(val);
+        if (s.includes(',') || s.includes('\n') || s.includes('"')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const csvContent = rows.map(row => row.map(escapeCell).join(',')).join('\n');
+      const fileUri = FileSystem.documentDirectory + 'SoilWise_Template.csv';
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
+
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Save SoilWise Template' });
+      } else {
+        Alert.alert('Saved', `Template saved to:\n${fileUri}`);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not generate template: ' + String(error));
+    }
+  };
+
+  // --- IMPORT CSV (mirrors Python import_excel: reads PARAMETER → VALUE pairs) ---
+  const handleImportCSV = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/comma-separated-values', 'text/plain'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const fileUri = result.assets[0].uri;
+      const content = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
+
+      // Parse a single CSV line respecting quoted fields
+      const parseCSVLine = (line: string): string[] => {
+        const values: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+            else { inQuotes = !inQuotes; }
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        values.push(current.trim());
+        return values;
+      };
+
+      // Build PARAMETER → VALUE dict (mirrors Python: row[0]=param, row[1]=value)
+      const dataDict: Record<string, string> = {};
+      for (const line of content.split('\n')) {
+        const cols = parseCSVLine(line.trim());
+        const param = cols[0]?.trim();
+        const value = cols[1]?.trim();
+        if (param && value && value !== '' && param !== 'PARAMETER' && param !== 'VALUE') {
+          dataDict[param] = value;
+        }
+      }
+
+      if (Object.keys(dataDict).length === 0) {
+        Alert.alert('Empty File', 'No data found. Make sure you filled in the VALUE column.');
+        return;
+      }
+
+      const imported: Partial<typeof initialFormState> = {};
+      let importedCount = 0;
+
+      // CROP — fuzzy match like Python
+      if (dataDict['Crop Name']) {
+        const match = CROPS.find(c => c.toLowerCase() === dataDict['Crop Name'].toLowerCase());
+        if (match) { imported.crop = match; importedCount++; }
+      }
+
+      // SEASON
+      if (dataDict['Season (if applicable)']) {
+        const match = SEASONS.find(s => s.toLowerCase().includes(dataDict['Season (if applicable)'].toLowerCase()));
+        if (match) { imported.season = match; importedCount++; }
+      }
+
+      // LOCATION
+      if (dataDict['Site Name']) {
+        const match = BARANGAYS.find(b => b.toLowerCase() === dataDict['Site Name'].toLowerCase());
+        if (match) { imported.location = match; importedCount++; }
+      }
+
+      // CLIMATE
+      const temp = dataDict['Average Temperature (°C)'] || dataDict['Average Temperature (C)'];
+      if (temp) { imported.temperature = temp; importedCount++; }
+      if (dataDict['Annual Rainfall (mm)']) { imported.rainfall = dataDict['Annual Rainfall (mm)']; importedCount++; }
+      if (dataDict['Humidity (%)']) { imported.humidity = dataDict['Humidity (%)']; importedCount++; }
+
+      // TOPOGRAPHY
+      if (dataDict['Slope (%)']) { imported.slope = dataDict['Slope (%)']; importedCount++; }
+
+      // WETNESS — match by code prefix like Python (e.g. "Fo" → "Fo - No flooding")
+      if (dataDict['Flooding']) {
+        const code = dataDict['Flooding'].trim();
+        const match = FLOODING_CLASSES.find(f => f.startsWith(code + ' -') || f === code);
+        if (match) { imported.flooding = match; importedCount++; }
+      }
+      if (dataDict['Drainage']) {
+        const code = dataDict['Drainage'].trim();
+        const match = DRAINAGE_CLASSES.find(d => d.startsWith(code + ' -') || d === code);
+        if (match) { imported.drainage = match; importedCount++; }
+      }
+
+      // PHYSICAL SOIL
+      if (dataDict['Texture']) {
+        const code = dataDict['Texture'].trim();
+        const match = TEXTURES.find(t => t.startsWith(code + ' -') || t === code);
+        if (match) { imported.texture = match; importedCount++; }
+      }
+      if (dataDict['Coarse Fragments (vol%)']) { imported.coarseFragments = dataDict['Coarse Fragments (vol%)']; importedCount++; }
+      if (dataDict['Soil Depth (cm)']) { imported.soilDepth = dataDict['Soil Depth (cm)']; importedCount++; }
+      const caco3 = dataDict['CaCO3 (%)'] || dataDict['CaCO₃ (%)'];
+      if (caco3) { imported.caco3 = caco3; importedCount++; }
+      if (dataDict['Gypsum (%)']) { imported.gypsum = dataDict['Gypsum (%)']; importedCount++; }
+
+      // SOIL FERTILITY
+      if (dataDict['Apparent CEC (cmol/kg clay)']) { imported.cec = dataDict['Apparent CEC (cmol/kg clay)']; importedCount++; }
+      if (dataDict['Clay Activity Type (if CEC=16)']) {
+        const match = CLAY_ACTIVITIES.find(a => a.toLowerCase().includes(dataDict['Clay Activity Type (if CEC=16)'].toLowerCase()));
+        if (match) { imported.clayActivity = match; importedCount++; }
+      }
+      if (dataDict['Sum of Basic Cations (cmol/kg)']) { imported.basicCations = dataDict['Sum of Basic Cations (cmol/kg)']; importedCount++; }
+      if (dataDict['Base Saturation (%)']) { imported.baseSaturation = dataDict['Base Saturation (%)']; importedCount++; }
+      const ph = dataDict['pH (H2O)'] || dataDict['pH (H₂O)'];
+      if (ph) { imported.ph = ph; importedCount++; }
+      if (dataDict['Organic Carbon (%)']) { imported.organicCarbon = dataDict['Organic Carbon (%)']; importedCount++; }
+
+      // SALINITY & ALKALINITY
+      if (dataDict['ECe (dS/m)']) { imported.ece = dataDict['ECe (dS/m)']; importedCount++; }
+      if (dataDict['ESP (%)']) { imported.esp = dataDict['ESP (%)']; importedCount++; }
+
+      setFormData(prev => ({ ...prev, ...imported }));
+      Alert.alert('Import Successful', `${importedCount} field(s) populated successfully!`);
+    } catch (error) {
+      Alert.alert('Import Error', String(error));
+    }
+  };
+
   return (
+    <>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
@@ -254,13 +477,13 @@ export default function InputScreen() {
 
         {/* Quick Import */}
         <View style={styles.card}>
-          <SectionHeader title="Data Import/Export" icon="file-text" />
+          <SectionHeader title="Data Import/Template" icon="file-text" />
           <View style={styles.importActionRow}>
-            <TouchableOpacity style={styles.outlineButton} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.outlineButton} activeOpacity={0.7} onPress={handleDownloadTemplate}>
               <Feather name="download" size={16} color="#475569" style={{ marginRight: 6 }} />
               <Text style={styles.outlineButtonText}>Template</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.tintedButton} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.tintedButton} activeOpacity={0.7} onPress={handleImportCSV}>
               <Feather name="upload" size={16} color="#2d5a2e" style={{ marginRight: 6 }} />
               <Text style={styles.tintedButtonText}>Import</Text>
             </TouchableOpacity>
@@ -322,7 +545,7 @@ export default function InputScreen() {
         <View style={styles.card}>
           <SectionHeader title="Physical Soil" icon="layers" />
           <SelectField 
-            label="Soil Texture" placeholder="Select USDA texture..." 
+            label="Soil Texture" placeholder="Select texture..." 
             value={formData.texture} onSelect={(val: string) => updateField('texture', val)}
             options={TEXTURES} 
           />
@@ -372,6 +595,39 @@ export default function InputScreen() {
 
       </ScrollView>
     </KeyboardAvoidingView>
+
+      {/* --- CLEAR FORM CONFIRMATION MODAL --- */}
+      <Modal
+        visible={showClearModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowClearModal(false)}
+      >
+        <TouchableOpacity style={styles.clearModalOverlay} activeOpacity={1} onPress={() => setShowClearModal(false)}>
+          <View style={styles.clearModalCard} onStartShouldSetResponder={() => true}>
+            <View style={styles.clearModalIconBox}>
+              <Feather name="refresh-ccw" size={24} color="#f97316" />
+            </View>
+            <Text style={styles.clearModalTitle}>Clear Form</Text>
+            <Text style={styles.clearModalBody}>
+              Are you sure you want to clear all inputs? All entered values will be lost.
+            </Text>
+            <View style={styles.clearModalActionRow}>
+              <TouchableOpacity style={styles.clearModalButton} activeOpacity={0.8} onPress={() => setShowClearModal(false)}>
+                <Text style={styles.clearModalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.clearModalButtonDestructive}
+                activeOpacity={0.8}
+                onPress={() => { setFormData(initialFormState); setShowClearModal(false); }}
+              >
+                <Text style={styles.clearModalButtonTextDestructive}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </>
   );
 }
 
@@ -408,5 +664,35 @@ const styles = StyleSheet.create({
   primaryButton: { flex: 1, backgroundColor: '#2d5a2e', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 30, shadowColor: '#2d5a2e', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 4 },
   primaryButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
   secondaryButton: { flex: 1, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 30 },
-  secondaryButtonText: { color: '#64748B', fontSize: 16, fontWeight: '600' }
+  secondaryButtonText: { color: '#64748B', fontSize: 16, fontWeight: '600' },
+
+  // Clear Form Modal
+  clearModalOverlay: {
+    flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24,
+  },
+  clearModalCard: {
+    backgroundColor: '#ffffff', width: '100%', borderRadius: 28, padding: 32,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1, shadowRadius: 24, elevation: 10,
+  },
+  clearModalIconBox: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 16,
+  },
+  clearModalTitle: { fontSize: 22, fontWeight: '800', color: '#0F172A', letterSpacing: -0.5, marginBottom: 8 },
+  clearModalBody: { fontSize: 15, color: '#475569', lineHeight: 24, marginBottom: 32 },
+  clearModalActionRow: { flexDirection: 'row', gap: 12 },
+  clearModalButton: {
+    flex: 1, backgroundColor: '#F1F5F9', paddingVertical: 14,
+    paddingHorizontal: 24, borderRadius: 24, alignItems: 'center', justifyContent: 'center',
+  },
+  clearModalButtonDestructive: {
+    flex: 1, backgroundColor: '#fff7ed', paddingVertical: 14,
+    paddingHorizontal: 24, borderRadius: 24, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#fed7aa',
+  },
+  clearModalButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
+  clearModalButtonTextDestructive: { color: '#f97316', fontSize: 15, fontWeight: '700' },
 });
